@@ -1,9 +1,9 @@
 <?php
-require 'config/db.php';
 session_start();
-
-
-$error = isset($_GET['error']) ? $_GET['error'] : '';
+// Include the login logic file
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['login'])) {
+    require 'login.php'; // Include the login logic
+}
 ?>
 
 <!DOCTYPE html>
@@ -17,10 +17,10 @@ $error = isset($_GET['error']) ? $_GET['error'] : '';
 <body>
     <div class="container">
         <h1>Welcome to E-Library</h1>
-        <form action="login.php" method="POST">
+        <form action="index.php" method="POST">
             <h2>Login</h2>
-            <?php if (!empty($error)): ?>
-                <p class="error"><?php echo htmlspecialchars($error); ?></p>
+            <?php if (isset($error)): ?>
+                <p class="error"><?php echo $error; ?></p>
             <?php endif; ?>
             <label for="email">Email:</label>
             <input type="email" id="email" name="email" required>
