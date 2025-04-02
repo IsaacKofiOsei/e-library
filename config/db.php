@@ -1,34 +1,30 @@
 <?php
-// config/db.php
-
-$servername = "localhost"; // Change if your DB server is different
-$username = "root"; // Your DB username
-$password = ""; // Your DB password
-$dbname = "elibrary"; // Your DB name
+// Database configuration
+$servername = "localhost";
+$username = "root";
+$password = "";
+$dbname = "elibrary";
 
 // Create connection
 $conn = new mysqli($servername, $username, $password, $dbname);
-$toastMessage = "";
+
 // Check connection
 if ($conn->connect_error) {
     die("Connection failed: " . $conn->connect_error);
-}else{
-    
-try {
-   // Create the database if it doesn't exist
-if (!$conn->query("CREATE DATABASE IF NOT EXISTS $dbname")) {
-    die("Error creating database: " . $conn->error);
 }
-$conn->select_db($dbname); // Select the database
 
-// Function to execute SQL queries with error handling
-function executeQuery($conn, $sql) {
-    if (!$conn->query($sql)) {
-        die("Error executing query: " . $conn->error);
+// Function to execute queries safely
+if (!function_exists('executeQuery')) {
+    function executeQuery($conn, $sql)
+    {
+        if (!$conn->query($sql)) {
+            die("Error executing query: " . $conn->error);
+        }
+        return true;
     }
 }
 
-// Create Users table
+// Create tables if they don't exist
 executeQuery($conn, "
     CREATE TABLE IF NOT EXISTS users (
         id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
@@ -38,182 +34,136 @@ executeQuery($conn, "
         password VARCHAR(255) NOT NULL,
         email VARCHAR(100) UNIQUE NOT NULL,
         student_id VARCHAR(20) UNIQUE,
-        image VARCHAR(255), 
+        image VARCHAR(255),
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
 ");
 
-// Create Books table
 executeQuery($conn, "
     CREATE TABLE IF NOT EXISTS books (
-    id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
-    title VARCHAR(255) NOT NULL,
-    author VARCHAR(255) NOT NULL,
-    isbn VARCHAR(20) UNIQUE, 
-    total_copies INT NOT NULL DEFAULT 1,
-    available_copies INT NOT NULL DEFAULT 1,
-    shelf_location VARCHAR(30), 
-    publisher VARCHAR(100),
-    publish_year YEAR,
-    genre VARCHAR(50),
-    language VARCHAR(20) DEFAULT 'English',
-    cover_image VARCHAR(255),  -- Path to cover image
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    CHECK (available_copies <= total_copies),
-    CHECK (available_copies >= 0)
-)
+        id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+        title VARCHAR(255) NOT NULL,
+        author VARCHAR(255) NOT NULL,
+        isbn VARCHAR(20) UNIQUE,
+        total_copies INT NOT NULL DEFAULT 1,
+        available_copies INT NOT NULL DEFAULT 1,
+        shelf_location VARCHAR(30),
+        publisher VARCHAR(100),
+        publish_year YEAR,
+        genre VARCHAR(50),
+        language VARCHAR(20) DEFAULT 'English',
+        cover_image VARCHAR(255),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        CONSTRAINT chk_available CHECK (available_copies <= total_copies),
+        CONSTRAINT chk_positive CHECK (available_copies >= 0)
+    )
 ");
 
-// Create Books Loan table
 executeQuery($conn, "
     CREATE TABLE IF NOT EXISTS books_loan (
         id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
         student_id CHAR(36) NOT NULL,
         book_id CHAR(36) NOT NULL,
-        date_collected DATE NOT NULL,
-        date_to_return DATE NOT NULL,
-        status ENUM('Returned', 'Still with student', 'Overdue') DEFAULT 'Still with student',
-        FOREIGN KEY (student_id) REFERENCES users(id),
-        FOREIGN KEY (book_id) REFERENCES books(id)
+        date_collected DATE,
+        date_to_return DATE,
+        date_returned DATE NULL,
+        status ENUM('Pending', 'Approved', 'Returned', 'Still with student', 'Overdue') DEFAULT 'Pending',
+        FOREIGN KEY (student_id) REFERENCES users(id) ON DELETE CASCADE ON UPDATE CASCADE,
+        FOREIGN KEY (book_id) REFERENCES books(id) ON DELETE CASCADE ON UPDATE CASCADE
     )
 ");
 
-
-
-// Create Reviews table
+// I create the Reviews table
 executeQuery($conn, "
-    CREATE TABLE IF NOT EXISTS reviews (
-        id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
-        student_id CHAR(36) NOT NULL,
-        book_id CHAR(36) NOT NULL,
-        rating TINYINT NOT NULL,
-        comment TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (student_id) REFERENCES users(id),
-        FOREIGN KEY (book_id) REFERENCES books(id)
-    )
-");
+       CREATE TABLE IF NOT EXISTS reviews (
+           id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+           student_id CHAR(36) NOT NULL,
+           book_id CHAR(36) NOT NULL,
+           rating TINYINT NOT NULL,
+           comment TEXT,
+           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+           FOREIGN KEY (student_id) REFERENCES users(id),
+           FOREIGN KEY (book_id) REFERENCES books(id)
+       )
+   ");
 
-// Create Notifications table
+// I create the Notifications table
 executeQuery($conn, "
     CREATE TABLE IF NOT EXISTS notifications (
-        id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
-        user_id CHAR(36) NOT NULL,
-        message TEXT NOT NULL,
-        status ENUM('Unread', 'Read') DEFAULT 'Unread',
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (user_id) REFERENCES users(id)
-    )
-");
+    id CHAR(36) PRIMARY KEY DEFAULT (UUID()),
+    sender_id CHAR(36) NOT NULL,
+    receiver_id CHAR(36) NOT NULL,
+    message TEXT NOT NULL,
+    status ENUM('Unread', 'Read') DEFAULT 'Unread',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (sender_id) REFERENCES users(id),
+    FOREIGN KEY (receiver_id) REFERENCES users(id)
+);
+   ");
 
-// Insert default admin user
-$adminName = "Admin";
-$adminRole = "Admin";
-$adminEmail = "admin@ebook.com";
-$adminPassword = password_hash("admin123", PASSWORD_DEFAULT); // Default password
-$adminStudentId = NULL; // Admin doesn't need a student ID
-$adminImage = NULL; // Admin image is optional
+// Create default admin if not exists
+$adminEmail = "admin@elibrary.com";
+$result = $conn->query("SELECT id FROM users WHERE email = '$adminEmail'");
+if ($result->num_rows === 0) {
+    $hashedPassword = password_hash("admin123", PASSWORD_DEFAULT);
+    $conn->query("INSERT INTO users (name, email, password, role) VALUES ('Admin', '$adminEmail', '$hashedPassword', 'Admin')");
+}
 
-// Check if the admin user already exists
-$stmt = $conn->prepare("SELECT id FROM users WHERE email = ?");
-$stmt->bind_param("s", $adminEmail);
-$stmt->execute();
-$stmt->store_result();
-
-if ($stmt->num_rows === 0) {
-    // Admin user does not exist, so insert it
-    $stmt = $conn->prepare("
-        INSERT INTO users (name, role, email, password, student_id, image)
-        VALUES (?, ?, ?, ?, ?, ?)
-    ");
-    if (!$stmt) {
-        die("Error preparing statement: " . $conn->error);
+if (!function_exists('getUnreadNotificationCount')) {
+    function getUnreadNotificationCount($conn, $user_id) {
+        $result = $conn->query("SELECT COUNT(*) FROM notifications WHERE receiver_id = '$user_id' AND status = 'Unread'");
+        return $result ? $result->fetch_row()[0] : 0;
     }
+}
 
-    $stmt->bind_param("ssssss", $adminName, $adminRole, $adminEmail, $adminPassword, $adminStudentId, $adminImage);
-
-    if (!$stmt->execute()) {
-        die("Error executing statement: " . $stmt->error);
+if (!function_exists('getLatestNotifications')) {
+    function getLatestNotifications($conn, $user_id, $limit = 5) {
+        $notifications = $conn->query("SELECT * FROM notifications 
+                                      WHERE receiver_id = '$user_id' 
+                                      ORDER BY created_at DESC 
+                                      LIMIT $limit");
+        
+        $output = '';
+        if ($notifications && $notifications->num_rows > 0) {
+            while ($note = $notifications->fetch_assoc()) {
+                $time_ago = timeAgo($note['created_at']);
+                $is_read = $note['status'] == 'Read' ? '' : 'unread';
+                $output .= "<div class='notification-item $is_read' data-id='{$note['id']}'>
+                            <p>{$note['message']}</p>
+                            <small>$time_ago</small>
+                            </div>";
+            }
+            $output .= "<a href='notifications.php' class='view-all'>View all notifications</a>";
+        } else {
+            $output = "<p>No notifications</p>";
+        }
+        return $output;
     }
-    $toastMessage = "Database Connected successfully";
-} 
-// else {
-//     // Admin user already exists
-//     $toastMessage = "Admin user already exists.";
-// }
-
-
-} catch (PDOException $e) {
-    die("Error setting up database: " . $e->getMessage());
-}
-}
-// echo "<script src='global/toast/toast.js'></script>";
-// echo "<script>showToast('$toastMessage');</script>";
-echo <<<HTML
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Database Setup</title>
-    <style>
-        /* Toast Notification Styles */
-        #toast {
-    visibility: hidden;
-    min-width: 250px;
-    background-color: #333;
-    color: #fff;
-    text-align: center;
-    border-radius: 4px;
-    padding: 16px;
-    position: fixed;
-    z-index: 1000;
-    left: 50%; /* Center horizontally */
-    top: 50%; /* Center vertically */
-    transform: translate(-50%, -50%); /* Adjust for exact center */
-    font-size: 14px;
-    opacity: 0; /* Start hidden */
-    transition: opacity 0.5s, visibility 0.5s; /* Smooth fade-in and fade-out */
 }
 
-#toast.show {
-    visibility: visible;
-    opacity: 1; /* Fully visible */
-}
+if (!function_exists('timeAgo')) {
+    function timeAgo($datetime) {
+        $time = strtotime($datetime);
+        $time_difference = time() - $time;
 
-        @keyframes fadein {
-            from {bottom: 0; opacity: 0;}
-            to {bottom: 20px; opacity: 1;}
+        if ($time_difference < 1) { return 'just now'; }
+        $condition = [
+            12 * 30 * 24 * 60 * 60 => 'year',
+            30 * 24 * 60 * 60 => 'month',
+            24 * 60 * 60 => 'day',
+            60 * 60 => 'hour',
+            60 => 'minute',
+            1 => 'second'
+        ];
+
+        foreach ($condition as $secs => $str) {
+            $d = $time_difference / $secs;
+            if ($d >= 1) {
+                $t = round($d);
+                return $t . ' ' . $str . ($t > 1 ? 's' : '') . ' ago';
+            }
         }
-
-        @keyframes fadeout {
-            from {bottom: 20px; opacity: 1;}
-            to {bottom: 0; opacity: 0;}
-        }
-    </style>
-</head>
-<body>
-    <!-- Toast Notification -->
-    <div id="toast"></div>
-
-    <script>
-        // Function to show toast notification
-        function showToast(message, duration = 3000) {
-            const toast = document.getElementById("toast");
-            toast.textContent = message;
-            toast.classList.add("show");
-
-            // Hide the toast after the specified duration
-            setTimeout(() => {
-                toast.classList.remove("show");
-            }, duration);
-        }
-
-        // Show toast message
-        //showToast("$toastMessage");
-    </script>
-</body>
-</html>
-HTML;
+    }
+}
 ?>
