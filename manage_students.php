@@ -8,486 +8,531 @@ if (!isset($_SESSION['user']) || $_SESSION['user']['role'] !== 'Admin') {
     exit();
 }
 
+// Handle toast messages from redirects
+$toast = $_GET['toast'] ?? null;
+$error = $_GET['error'] ?? null;
+
 // Pagination setup
 $perPage = 10;
 $page = $_GET['page'] ?? 1;
 $offset = ($page - 1) * $perPage;
 
-// Handle search
+// Search functionality
 $search = $_GET['search'] ?? '';
-$where = "WHERE role = 'Student'";
+$where = "WHERE 1=1";
 if (!empty($search)) {
     $where .= " AND (name LIKE '%$search%' OR email LIKE '%$search%' OR student_id LIKE '%$search%')";
 }
 
-// Fetch students with pagination
-$totalStudents = $conn->query("SELECT COUNT(*) FROM users $where")->fetch_row()[0];
-$totalPages = ceil($totalStudents / $perPage);
-$students = $conn->query("SELECT * FROM users $where ORDER BY created_at DESC LIMIT $offset, $perPage");
+// Get total users count
+$totalUsers = $conn->query("SELECT COUNT(*) FROM users $where")->fetch_row()[0];
+$totalPages = ceil($totalUsers / $perPage);
 
-// Handle student actions
-if (isset($_GET['action'])) {
-    $studentId = $_GET['id'];
-    
-    switch ($_GET['action']) {
-        case 'block':
-            $conn->query("UPDATE users SET status = 'Blocked' WHERE id = '$studentId'");
-            header("Location: manage_students.php?toast=Student blocked successfully&page=$page&search=".urlencode($search));
-            exit();
-            
-        case 'unblock':
-            $conn->query("UPDATE users SET status = 'Active' WHERE id = '$studentId'");
-            header("Location: manage_students.php?toast=Student unblocked successfully&page=$page&search=".urlencode($search));
-            exit();
-            
-        case 'delete':
-            $hasLoans = $conn->query("SELECT COUNT(*) FROM books_loan WHERE student_id = '$studentId' AND status != 'Returned'")->fetch_row()[0];
-            if ($hasLoans > 0) {
-                header("Location: manage_students.php?error=Student has active loans and cannot be deleted&page=$page&search=".urlencode($search));
-                exit();
-            }
-            $conn->query("DELETE FROM users WHERE id = '$studentId'");
-            header("Location: manage_students.php?toast=Student deleted successfully&page=$page&search=".urlencode($search));
-            exit();
-    }
-}
-
-// Handle notification sending
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['send_notification'])) {
-    $userId = $_POST['user_id'];
-    $message = $conn->real_escape_string($_POST['message']);
-    
-    $conn->query("INSERT INTO notifications (user_id, message) VALUES ('$userId', '$message')");
-    header("Location: manage_students.php?toast=Notification sent successfully&page=$page&search=".urlencode($search));
-    exit();
-}
+// Get users for current page
+$users = $conn->query("SELECT * FROM users $where ORDER BY created_at DESC LIMIT $offset, $perPage");
 ?>
 
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Manage Students - E-Library</title>
+    <title>Manage Users - E-Library</title>
     <link rel="stylesheet" href="assets/css/admin_dash_styles.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <style>
-        /* Table Styles */
-        .students-table {
+        /* Toast Notification */
+        form input[type="text"],
+        form input[type="email"],
+        form input[type="password"],
+        form select {
             width: 100%;
-            border-collapse: collapse;
-            background: white;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-            margin-top: 20px;
-            font-size: 14px;
-        }
-        
-        .students-table th {
-            background: #f8f9fa;
-            padding: 12px 15px;
-            text-align: left;
-            font-weight: 600;
-            color: #495057;
-            border-bottom: 2px solid #e0e0e0;
-        }
-        
-        .students-table td {
-            padding: 12px 15px;
-            border-bottom: 1px solid #e0e0e0;
-            vertical-align: middle;
-        }
-        
-        .students-table tr:last-child td {
-            border-bottom: none;
-        }
-        
-        /* Student Avatar */
-        .student-avatar {
-            width: 40px;
-            height: 40px;
-            border-radius: 50%;
-            object-fit: cover;
-            border: 2px solid #e0e0e0;
-        }
-        
-        .avatar-placeholder {
-            width: 40px;
-            height: 40px;
-            border-radius: 50%;
-            background: #f1f3f5;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: #868e96;
-        }
-        
-        /* Status Badges */
-        .badge {
+            padding: 10px;
+            margin: 10px 0 20px;
             display: inline-block;
-            padding: 4px 8px;
-            border-radius: 12px;
-            font-size: 12px;
-            font-weight: 600;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            box-sizing: border-box;
         }
-        
-        .badge-active {
-            background: #e6f7ee;
-            color: #0ca678;
-        }
-        .modal {
-    display: none; 
-    position: fixed;
 
-}
-        
-        .badge-blocked {
-            background: #ffebee;
-            color: #f03e3e;
+        form label {
+            font-weight: 600;
+            display: block;
+            margin-bottom: 6px;
         }
-        
-        .badge-loan {
-            background: #e7f5ff;
-            color: #1971c2;
-        }
-        
-        /* Action Buttons */
-        .action-btn {
-            padding: 6px 10px;
+
+        form button,
+        .btn {
+            background-color: #007bff;
+            color: white;
+            padding: 10px 18px;
             border: none;
             border-radius: 4px;
             cursor: pointer;
-            font-size: 12px;
-            display: inline-flex;
-            align-items: center;
-            gap: 5px;
-            transition: all 0.2s;
         }
-        
-        .action-btn:hover {
-            transform: translateY(-1px);
+
+        form button:hover,
+        .btn:hover {
+            background-color: #0056b3;
         }
-        
-        .btn-notify {
-            background: #fff3bf;
-            color: #5f3dc4;
+
+        .form-container {
+            max-width: 500px;
+            background: #fff;
+            padding: 25px 30px;
+            /* ✅ Added side padding */
+            border-radius: 8px;
+            box-shadow: 0 0 12px rgba(0, 0, 0, 0.1);
+            margin: auto;
+            box-sizing: border-box;
         }
-        
-        .btn-unblock {
-            background: #d3f9d8;
-            color: #2b8a3e;
-        }
-        
-        .btn-block {
-            background: #ffd8d8;
-            color: #c92a2a;
-        }
-        
-        .btn-delete {
-            background: #f1f3f5;
-            color: #495057;
-        }
-        
-        .btn-view {
-            background: #d0ebff;
-            color: #1864ab;
-        }
-        
-        /* Action Container */
-        .action-container {
-            display: flex;
-            gap: 8px;
-            flex-wrap: wrap;
-        }
-        
-        /* Pagination */
-        .pagination {
-            display: flex;
-            gap: 8px;
-            margin-top: 20px;
-            justify-content: center;
-        }
-        
-        .pagination a {
-            padding: 8px 12px;
-            border: 1px solid #dee2e6;
-            color: #495057;
-            text-decoration: none;
+
+        .toast {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 15px;
             border-radius: 4px;
-            transition: all 0.2s;
-        }
-        
-        .pagination a:hover, .pagination a.active {
-            background: #1971c2;
             color: white;
-            border-color: #1971c2;
+            display: flex;
+            align-items: center;
+            z-index: 1001;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            transform: translateX(150%);
+            transition: transform 0.3s ease;
         }
-        
-        /* Responsive */
-        @media (max-width: 768px) {
-            .students-table {
-                display: block;
-                overflow-x: auto;
-            }
-            
-            .action-container {
-                flex-direction: column;
-            }
-            
-            .action-btn {
-                width: 100%;
-                justify-content: center;
-            }
+
+        .toast.show {
+            transform: translateX(0);
+        }
+
+        .toast.success {
+            background: #28a745;
+        }
+
+        .toast.error {
+            background: #dc3545;
+        }
+
+        .toast i {
+            margin-right: 10px;
+        }
+
+        .toast-close {
+            margin-left: 15px;
+            cursor: pointer;
+        }
+
+        /* Modal Styles */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            padding: 20px;
+
+            /* left: ; */
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .modal-content {
+            background: white;
+            border-radius: 8px;
+            width: 100%;
+            margin: auto;
+            padding: 20px;
+            max-width: 500px;
+            max-height: 90vh;
+            overflow-y: auto;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+        }
+
+        /* Table Styles */
+        .users-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+
+        .users-table th,
+        .users-table td {
+            padding: 12px 15px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+
+        .users-table th {
+            background-color: #f8f9fa;
+            font-weight: 600;
+        }
+
+        .action-btn {
+            padding: 6px 12px;
+            margin: 0 3px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        .btn-edit {
+            background-color: #17a2b8;
+            color: white;
+        }
+
+        .btn-delete {
+            background-color: #dc3545;
+            color: white;
+        }
+
+        .btn-add {
+            background-color: #28a745;
+            color: white;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
         }
     </style>
 </head>
+
 <body>
     <?php include 'admin_topbar_sidebar.php'; ?>
-    
+
+    <!-- Toast Notification -->
+    <div id="toast" class="toast">
+        <i class="fas fa-check-circle"></i>
+        <span id="toast-message"></span>
+        <span class="toast-close" onclick="hideToast()">&times;</span>
+    </div>
+
     <div class="main-content">
         <div class="container">
-            <div class="page-header">
-                <h1>Manage Students</h1>
-                
-                <div class="search-box">
-                    <input type="text" id="searchInput" placeholder="Search students..." value="<?= htmlspecialchars($search) ?>">
-                    <button onclick="searchStudents()"><i class="fas fa-search"></i> Search</button>
+            <h1>Manage Users</h1>
+
+            <div style="margin: 20px 0; display: flex; justify-content: space-between;">
+                <button class="btn-add" onclick="showAddModal()">
+                    <i class="fas fa-user-plus"></i> Add User
+                </button>
+
+                <div style="display: flex;">
+                    <input type="text" id="searchInput" placeholder="Search users..." value="<?= htmlspecialchars($search) ?>">
+                    <button onclick="searchUsers()" style="margin-left: 10px;">
+                        <i class="fas fa-search"></i> Search
+                    </button>
                 </div>
             </div>
-            
-            <table class="students-table">
+
+            <table class="users-table">
                 <thead>
                     <tr>
-                        <th style="width: 50px;"></th>
-                        <th>Student</th>
-                        <th>ID</th>
-                        <th>Status</th>
-                        <th>Loans</th>
+                        <th>Image</th>
+                        <th>Name</th>
+                        <th>Email</th>
+                        <th>Student ID</th>
+                        <th>Role</th>
                         <th>Actions</th>
                     </tr>
                 </thead>
                 <tbody>
-                    <?php while ($student = $students->fetch_assoc()): 
-                        $loanCount = $conn->query("SELECT COUNT(*) FROM books_loan WHERE student_id = '{$student['id']}' AND status != 'Returned'")->fetch_row()[0];
-                    ?>
-                    <tr>
-                        <td>
-                            <?php if (!empty($student['image'])): ?>
-                                <img src="<?= $student['image'] ?>" class="student-avatar" alt="<?= htmlspecialchars($student['name']) ?>">
-                            <?php else: ?>
-                                <div class="avatar-placeholder">
-                                    <i class="fas fa-user"></i>
-                                </div>
-                            <?php endif; ?>
-                        </td>
-                        <td>
-                            <div style="font-weight: 500;"><?= htmlspecialchars($student['name']) ?></div>
-                            <div style="font-size: 12px; color: #868e96;"><?= htmlspecialchars($student['email']) ?></div>
-                        </td>
-                        <td><?= htmlspecialchars($student['student_id'] ?? 'N/A') ?></td>
-                        <td>
-                            <span class="badge <?= ($student['status'] ?? 'Active') === 'Blocked' ? 'badge-blocked' : 'badge-active' ?>">
-                                <?= ($student['status'] ?? 'Active') ?>
-                            </span>
-                        </td>
-                        <td>
-                            <?php if ($loanCount > 0): ?>
-                                <span class="badge badge-loan"><?= $loanCount ?> active</span>
-                                <button class="action-btn btn-view" onclick="showLoansModal('<?= $student['id'] ?>', '<?= htmlspecialchars($student['name']) ?>')">
-                                    <i class="fas fa-eye"></i> View
-                                </button>
-                            <?php else: ?>
-                                No loans
-                            <?php endif; ?>
-                        </td>
-                        <td>
-                            <div class="action-container">
-                                <!-- <button class="action-btn btn-notify" onclick="showNotificationModal('<?= $student['id'] ?>', '<?= htmlspecialchars($student['name']) ?>')">
-                                    <i class="fas fa-bell"></i> Notify
-                                </button> -->
-                                
-                                <?php if (($student['status'] ?? 'Active') === 'Blocked'): ?>
-                                    <button class="action-btn btn-unblock" onclick="unblockStudent('<?= $student['id'] ?>')">
-                                        <i class="fas fa-lock-open"></i> Unblock
-                                    </button>
+                    <?php while ($user = $users->fetch_assoc()): ?>
+                        <tr>
+                            <td>
+                                <?php if (!empty($user['image'])): ?>
+                                    <img src="<?= htmlspecialchars($user['image']) ?>" alt="User Image" width="40" height="40" style="border-radius: 50%; object-fit: cover;">
                                 <?php else: ?>
-                                    <button class="action-btn btn-block" onclick="blockStudent('<?= $student['id'] ?>')">
-                                        <i class="fas fa-ban"></i> Block
-                                    </button>
+                                    <span style="color: #888;">No Image</span>
                                 <?php endif; ?>
-                                
-                                <!-- <button class="action-btn btn-delete" onclick="deleteStudent('<?= $student['id'] ?>')">
+                            </td>
+                            <td><?= htmlspecialchars($user['name']) ?></td>
+                            <td><?= htmlspecialchars($user['email']) ?></td>
+                            <td><?= htmlspecialchars($user['student_id'] ?? 'N/A') ?></td>
+                            <td><?= htmlspecialchars($user['role']) ?></td>
+                            <td>
+                                <button class="action-btn btn-edit" onclick="showEditModal('<?= $user['id'] ?>')">
+                                    <i class="fas fa-edit"></i> Edit
+                                </button>
+                                <button class="action-btn btn-delete" onclick="deleteUser('<?= $user['id'] ?>')">
                                     <i class="fas fa-trash"></i> Delete
-                                </button> -->
-                            </div>
-                        </td>
-                    </tr>
+                                </button>
+                            </td>
+                        </tr>
                     <?php endwhile; ?>
                 </tbody>
             </table>
-            
+
+            <!-- Pagination -->
             <?php if ($totalPages > 1): ?>
-            <div class="pagination">
-                <?php for ($i = 1; $i <= $totalPages; $i++): ?>
-                    <a href="?page=<?= $i ?>&search=<?= urlencode($search) ?>" <?= $i == $page ? 'class="active"' : '' ?>>
-                        <?= $i ?>
-                    </a>
-                <?php endfor; ?>
-            </div>
+                <div style="display: flex; justify-content: center; margin-top: 20px;">
+                    <?php for ($i = 1; $i <= $totalPages; $i++): ?>
+                        <a href="?page=<?= $i ?>&search=<?= urlencode($search) ?>"
+                            style="padding: 8px 12px; margin: 0 5px; border: 1px solid #ddd; border-radius: 4px;
+                              <?= $i == $page ? 'background: #007bff; color: white;' : '' ?>">
+                            <?= $i ?>
+                        </a>
+                    <?php endfor; ?>
+                </div>
             <?php endif; ?>
         </div>
     </div>
-    
-    <!-- Notification Modal -->
-    <div id="notificationModal" class="modal">
+
+    <!-- Add User Modal -->
+    <div id="addModal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
-                <h2>Send Notification</h2>
-                <span class="close-btn" onclick="closeModal('notificationModal')">&times;</span>
+                <h2>Add New User</h2>
+                <span class="close-btn" onclick="closeModal('addModal')">&times;</span>
             </div>
-            <form method="POST" action="manage_students.php">
-                <input type="hidden" name="user_id" id="notificationUserId">
-                <input type="hidden" name="send_notification" value="1">
+            <form action="add_user.php" method="POST" enctype="multipart/form-data">
                 <input type="hidden" name="page" value="<?= $page ?>">
                 <input type="hidden" name="search" value="<?= htmlspecialchars($search) ?>">
-                
-                <div class="form-group">
-                    <label for="notificationRecipient">To:</label>
-                    <input type="text" id="notificationRecipient" class="form-control" readonly>
+
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label>Full Name *</label>
+                        <input type="text" name="name" required class="form-control">
+                    </div>
+
+                    <div class="form-group">
+                        <label>Email *</label>
+                        <input type="email" name="email" required class="form-control">
+                    </div>
+
+                    <div class="form-group">
+                        <label>Role *</label>
+                        <select name="role" required class="form-control">
+                            <option value="Student">Student</option>
+                            <option value="Admin">Admin</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group" id="studentIdGroup">
+                        <label>Student ID *</label>
+                        <input type="text" name="student_id" class="form-control">
+                    </div>
+
+                    <div class="form-group">
+                        <label>Profile Image</label>
+                        <input type="file" name="image" accept="image/*" class="form-control">
+                    </div>
+
+                    <div style="margin-top: 20px; padding: 15px; background: #f8f9fa; border-radius: 4px;">
+                        <p style="margin: 0 0 5px 0;"><strong>Default Password:</strong> 123456</p>
+                        <small>User will be prompted to change password on first login</small>
+                    </div>
                 </div>
-                
-                <div class="form-group">
-                    <label for="message">Message:</label>
-                    <textarea id="message" name="message" class="form-control" required style="min-height: 120px;"></textarea>
+                <div class="modal-footer">
+                    <button type="submit" class="btn-primary">
+                        <i class="fas fa-save"></i> Create User
+                    </button>
                 </div>
-                
-                <button type="submit" class="submit-btn">
-                    <i class="fas fa-paper-plane"></i> Send Notification
-                </button>
             </form>
         </div>
     </div>
-    
-    <!-- Loans Modal -->
-    <div id="loansModal" class="modal">
+
+    <!-- Edit User Modal -->
+    <div id="editModal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
-                <h2 id="loansModalTitle">Student's Active Loans</h2>
-                <span class="close-btn" onclick="closeModal('loansModal')">&times;</span>
+                <h2>Edit User</h2>
+                <span class="close-btn" onclick="closeModal('editModal')">&times;</span>
             </div>
-            <div id="loansList">
-                <p>Loading loan information...</p>
-            </div>
+            <form id="editForm" method="POST" action="update_user.php" enctype="multipart/form-data">
+                <input type="hidden" name="id" id="editUserId">
+                <input type="hidden" name="page" value="<?= $page ?>">
+                <input type="hidden" name="search" value="<?= htmlspecialchars($search) ?>">
+
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label>Full Name *</label>
+                        <input type="text" name="name" id="editName" required class="form-control">
+                    </div>
+
+                    <div class="form-group">
+                        <label>Email *</label>
+                        <input type="email" name="email" id="editEmail" required class="form-control">
+                    </div>
+
+                    <div class="form-group">
+                        <label>Role *</label>
+                        <select name="role" id="editRole" required class="form-control">
+                            <option value="Student">Student</option>
+                            <option value="Admin">Admin</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group" id="editStudentIdGroup">
+                        <label>Student ID *</label>
+                        <input type="text" name="student_id" id="editStudentId" class="form-control">
+                    </div>
+
+                    <div class="form-group">
+                        <label>Profile Image</label>
+                        <input type="file" name="image" accept="image/*" class="form-control">
+                        <div id="currentImage" style="margin-top: 10px;"></div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="submit" class="btn-primary">
+                        <i class="fas fa-save"></i> Update User
+                    </button>
+                </div>
+            </form>
         </div>
     </div>
-    
-    <!-- Toast Notification -->
-    <div id="toast" class="toast">
-        <i class="fas fa-check-circle"></i>
-        <span id="toast-message">Operation successful</span>
-        <span class="toast-close" onclick="hideToast()">&times;</span>
-    </div>
-    
+
     <script>
-        // Search function
-        function searchStudents() {
-            const searchTerm = document.getElementById('searchInput').value;
-            window.location.href = `manage_students.php?search=${encodeURIComponent(searchTerm)}`;
-        }
-        
-        // Student actions
-        function blockStudent(studentId) {
-            if (confirm('Block this student? They won\'t be able to request books.')) {
-                window.location.href = `manage_students.php?action=block&id=${studentId}&page=<?= $page ?>&search=<?= urlencode($search) ?>`;
-            }
-        }
-        
-        function unblockStudent(studentId) {
-            if (confirm('Unblock this student?')) {
-                window.location.href = `manage_students.php?action=unblock&id=${studentId}&page=<?= $page ?>&search=<?= urlencode($search) ?>`;
-            }
-        }
-        
-        function deleteStudent(studentId) {
-            if (confirm('Permanently delete this student? This cannot be undone.')) {
-                window.location.href = `manage_students.php?action=delete&id=${studentId}&page=<?= $page ?>&search=<?= urlencode($search) ?>`;
-            }
-        }
-        
-        // Modal functions
-        function showNotificationModal(userId, userName) {
-            document.getElementById('notificationUserId').value = userId;
-            document.getElementById('notificationRecipient').value = userName;
-            document.getElementById('notificationModal').style.display = 'flex';
-        }
-        
-        function showLoansModal(userId, userName) {
-            document.getElementById('loansModalTitle').textContent = `${userName}'s Active Loans`;
-            document.getElementById('loansModal').style.display = 'flex';
-            
-            // Load loans via AJAX
-            fetch(`get_student_loans.php?user_id=${userId}`)
-                .then(response => response.text())
-                .then(data => {
-                    document.getElementById('loansList').innerHTML = data;
-                })
-                .catch(error => {
-                    document.getElementById('loansList').innerHTML = `<p class="text-danger">Error loading loans: ${error}</p>`;
-                });
-        }
-        
-        function closeModal(modalId) {
-            document.getElementById(modalId).style.display = 'none';
-        }
-        
-        // Toast notification
+        // Toast Notification Functions
         function showToast(message, isError = false) {
             const toast = document.getElementById('toast');
             const toastMessage = document.getElementById('toast-message');
             const toastIcon = toast.querySelector('i');
-            
+
             toastMessage.textContent = message;
-            toast.className = isError ? 'toast error' : 'toast';
+            toast.className = isError ? 'toast error show' : 'toast success show';
             toastIcon.className = isError ? 'fas fa-exclamation-circle' : 'fas fa-check-circle';
-            
-            toast.classList.add('show');
-            
+
             setTimeout(() => {
                 hideToast();
             }, 5000);
         }
-        
+
         function hideToast() {
             document.getElementById('toast').classList.remove('show');
         }
-        
-        // Check for toast message in URL
+
+        // Show any existing toast on page load
         window.onload = function() {
-            const urlParams = new URLSearchParams(window.location.search);
-            const toastMessage = urlParams.get('toast');
-            const errorMessage = urlParams.get('error');
-            
-            if (toastMessage) {
-                showToast(toastMessage);
-            }
-            
-            if (errorMessage) {
-                showToast(errorMessage, true);
-            }
+            <?php if ($toast): ?>
+                showToast("<?= addslashes($toast) ?>");
+            <?php endif; ?>
+
+            <?php if ($error): ?>
+                showToast("<?= addslashes($error) ?>", true);
+            <?php endif; ?>
         };
-        
-        // Close modals when clicking outside
-        window.onclick = function(event) {
+
+        // Modal Functions
+        function showAddModal() {
+            document.getElementById('addModal').style.display = 'flex';
+        }
+
+        async function showEditModal(userId) {
+            try {
+                const response = await fetch(`get_user.php?id=${userId}`);
+                const user = await response.json();
+
+                document.getElementById('editUserId').value = user.id;
+                document.getElementById('editName').value = user.name;
+                document.getElementById('editEmail').value = user.email;
+                document.getElementById('editRole').value = user.role;
+                document.getElementById('editStudentId').value = user.student_id || '';
+
+                const studentIdGroup = document.getElementById('editStudentIdGroup');
+                if (user.role === 'Student') {
+                    studentIdGroup.style.display = 'block';
+                    document.getElementById('editStudentId').required = true;
+                } else {
+                    studentIdGroup.style.display = 'none';
+                    document.getElementById('editStudentId').required = false;
+                }
+
+                const currentImage = document.getElementById('currentImage');
+                if (user.image) {
+                    currentImage.innerHTML = `
+                        <p>Current Image:</p>
+                        <img src="${user.image}" style="max-width: 100px; max-height: 100px;">
+                    `;
+                } else {
+                    currentImage.innerHTML = '<p>No image uploaded</p>';
+                }
+
+                document.getElementById('editModal').style.display = 'flex';
+            } catch (error) {
+                showToast("Failed to load user data", true);
+                console.error(error);
+            }
+        }
+
+        function closeModal(modalId) {
+            document.getElementById(modalId).style.display = 'none';
+        }
+
+        // Delete User Function
+        async function deleteUser(userId) {
+            if (!confirm('Are you sure you want to delete this user?')) return;
+
+            try {
+                const response = await fetch(`delete_user.php?id=${userId}&page=<?= $page ?>&search=<?= urlencode($search) ?>`);
+                const result = await response.json();
+
+                if (result.success) {
+                    showToast(result.message);
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 1500);
+                } else {
+                    showToast(result.error, true);
+                }
+            } catch (error) {
+                showToast("Failed to delete user", true);
+                console.error(error);
+            }
+        }
+
+        // Search Function
+        function searchUsers() {
+            const searchTerm = document.getElementById('searchInput').value;
+            window.location.href = `manage_users.php?search=${encodeURIComponent(searchTerm)}`;
+        }
+
+        // Close modal when clicking outside
+        window.addEventListener('click', function(event) {
             if (event.target.className === 'modal') {
                 event.target.style.display = 'none';
             }
-        }
-        
+        });
+
         // Allow pressing Enter in search box
         document.getElementById('searchInput').addEventListener('keypress', function(e) {
             if (e.key === 'Enter') {
-                searchStudents();
+                searchUsers();
+            }
+        });
+
+        // Handle edit form submission with AJAX
+        document.getElementById('editForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+
+            const formData = new FormData(this);
+
+            try {
+                const response = await fetch('update_user.php', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    showToast(result.message);
+                    closeModal('editModal');
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 1500);
+                } else {
+                    showToast(result.error, true);
+                }
+            } catch (error) {
+                showToast("Failed to update user", true);
+                console.error(error);
             }
         });
     </script>
 </body>
+
 </html>

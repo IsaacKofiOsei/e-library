@@ -302,7 +302,7 @@ $recent_notifications = $conn->query("SELECT * FROM notifications WHERE receiver
                 <a href="manage_books.php"><i class="fas fa-book"></i> Manage Books</a>
             </li>
             <li class="<?= (basename($_SERVER['PHP_SELF']) === 'manage_students.php') ? 'active' : '' ?>">
-                <a href="manage_students.php"><i class="fas fa-users"></i> Manage Students</a>
+                <a href="manage_students.php"><i class="fas fa-users"></i> Manage Users</a>
             </li>
             <li class="<?= (basename($_SERVER['PHP_SELF']) === 'manage_loans.php') ? 'active' : '' ?>">
                 <a href="manage_loans.php"><i class="fas fa-exchange-alt"></i> Manage Loans</a>
